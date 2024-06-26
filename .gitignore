@@ -6,3 +6,4 @@ local/*
 !local/.gitkeep
 *.code-workspace
 .vscode
+tmp.py

@@ -122,3 +122,41 @@ class ThreadsClient:
             url=url,
             data=data,
         )
+
+    def retrieve_thread(
+        self,
+        media_id,
+    ) -> dict:
+        """_summary_
+        example response:
+            {
+                'data': [
+                    {
+                        'id': '1010101010101010101',
+                        'text': 'Hello World!',
+                        'likes_count': 0,
+                        'replies_count': 0,
+                        'retweets_count': 0,
+                        'created_at': '2023-05-25T00:00:00Z'
+                    },
+                    {
+                        'id': '2020202020202020202',
+                        'text': 'Hello Threads!',
+                        'likes_count': 0,
+                        'replies_count': 0,
+                        'retweets_count': 0,
+                        'created_at': '2023-05-25T00:00:00Z'
+        """
+        endpoint = f'/me/threads'
+        method = 'GET'
+        url = f'{self.base_url_v1}{endpoint}'
+
+        return self._request(
+            method=method,
+            url=url,
+            params={
+                'fields': 'id,text,likes_count,replies_count,retweets_count,created_at,permalink',
+                'id': media_id,
+                'access_token': self.auth_token
+            },
+        )
