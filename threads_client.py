@@ -6,7 +6,6 @@ class ThreadsClient:
     def __init__(self, auth_token):
         self.auth_token = auth_token
         self.base_url_v1 = 'https://graph.threads.net/v1.0'
-        self.user_id = self.retrieve_profiles()['id']
 
     def _request(self, method, url, data=None, params=None):
         headers = {
@@ -85,7 +84,7 @@ class ThreadsClient:
                 'id': '1010101010101010101'
             }
         """
-        endpoint = f'/{self.user_id}/threads'
+        endpoint = f'/me/threads'
         method = 'POST'
         url = f'{self.base_url_v1}{endpoint}'
 
@@ -111,7 +110,7 @@ class ThreadsClient:
                 'success': True
             }
         """
-        endpoint = f'/{self.user_id}/threads_publish'
+        endpoint = f'/me/threads_publish'
         method = 'POST'
         url = f'{self.base_url_v1}{endpoint}'
 
@@ -138,14 +137,9 @@ class ThreadsClient:
                         'replies_count': 0,
                         'retweets_count': 0,
                         'created_at': '2023-05-25T00:00:00Z'
-                    },
-                    {
-                        'id': '2020202020202020202',
-                        'text': 'Hello Threads!',
-                        'likes_count': 0,
-                        'replies_count': 0,
-                        'retweets_count': 0,
-                        'created_at': '2023-05-25T00:00:00Z'
+                    }
+                ]
+            }
         """
         endpoint = f'/me/threads'
         method = 'GET'
