@@ -7,7 +7,7 @@ class ThreadsClient:
         self.auth_token = auth_token
         self.base_url_v1 = 'https://graph.threads.net/v1.0'
 
-    def _request(self, method, url, data=None, params=None):
+    def _request(self, method, url, data=None, params=None, files: dict = {}):
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.auth_token}',
@@ -15,6 +15,8 @@ class ThreadsClient:
 
         print(f'url: {url}')
         print(f'data: {data}')
+        print(f'params: {params}')
+        print(f'files: {files}')
 
         try:
             response = requests.request(
@@ -22,7 +24,8 @@ class ThreadsClient:
                 url=url,
                 headers=headers,
                 json=data,
-                params=params
+                params=params,
+                files=files,
             )
         except Exception as e:
             raise Exception(e)
@@ -151,6 +154,26 @@ class ThreadsClient:
             params={
                 'fields': 'id,text,likes_count,replies_count,retweets_count,created_at,permalink',
                 'id': media_id,
+                'access_token': self.auth_token
+            },
+        )
+
+    def threads_insights(
+        self,
+        user_id: str,
+    ):
+        """
+        refs: https://developers.facebook.com/docs/threads/insights
+        """
+        endpoint = f'/{user_id}/threads_insights'
+        method = 'GET'
+        url = f'{self.base_url_v1}{endpoint}'
+
+        return self._request(
+            method=method,
+            url=url,
+            params={
+                'metric': 'views,likes,replies,reposts,quotes,followers_count',
                 'access_token': self.auth_token
             },
         )
