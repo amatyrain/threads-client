@@ -6,27 +6,35 @@ class ThreadsClient:
     def __init__(self, auth_token):
         self.auth_token = auth_token
         self.base_url_v1 = 'https://graph.threads.net/v1.0'
+        self.user_id = self.retrieve_profiles()['id']
 
-    def _request(self, method, url, data=None, params=None, files: dict = {}):
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.auth_token}',
-        }
-
+    def _request(self, method, url, data=None, params=None, use_form_data=False):
         print(f'url: {url}')
         print(f'data: {data}')
-        print(f'params: {params}')
-        print(f'files: {files}')
+        print(f'use_form_data: {use_form_data}')
 
         try:
-            response = requests.request(
-                method=method,
-                url=url,
-                headers=headers,
-                json=data,
-                params=params,
-                files=files,
-            )
+            if use_form_data:
+                # Threads API requires form data for certain endpoints (e.g., threads_publish)
+                form_data = {**(data or {}), 'access_token': self.auth_token}
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    data=form_data,
+                    params=params
+                )
+            else:
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {self.auth_token}',
+                }
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=data,
+                    params=params
+                )
         except Exception as e:
             raise Exception(e)
 
@@ -87,7 +95,7 @@ class ThreadsClient:
                 'id': '1010101010101010101'
             }
         """
-        endpoint = f'/me/threads'
+        endpoint = f'/{self.user_id}/threads'
         method = 'POST'
         url = f'{self.base_url_v1}{endpoint}'
 
@@ -104,6 +112,7 @@ class ThreadsClient:
             method=method,
             url=url,
             data=data,
+            use_form_data=True,
         )
 
     def publish_thread(self, thread_id) -> dict:
@@ -113,7 +122,7 @@ class ThreadsClient:
                 'success': True
             }
         """
-        endpoint = f'/me/threads_publish'
+        endpoint = f'/{self.user_id}/threads_publish'
         method = 'POST'
         url = f'{self.base_url_v1}{endpoint}'
 
@@ -123,6 +132,7 @@ class ThreadsClient:
             method=method,
             url=url,
             data=data,
+            use_form_data=True,
         )
 
     def retrieve_thread(
@@ -140,9 +150,14 @@ class ThreadsClient:
                         'replies_count': 0,
                         'retweets_count': 0,
                         'created_at': '2023-05-25T00:00:00Z'
-                    }
-                ]
-            }
+                    },
+                    {
+                        'id': '2020202020202020202',
+                        'text': 'Hello Threads!',
+                        'likes_count': 0,
+                        'replies_count': 0,
+                        'retweets_count': 0,
+                        'created_at': '2023-05-25T00:00:00Z'
         """
         endpoint = f'/me/threads'
         method = 'GET'
@@ -154,26 +169,6 @@ class ThreadsClient:
             params={
                 'fields': 'id,text,likes_count,replies_count,retweets_count,created_at,permalink',
                 'id': media_id,
-                'access_token': self.auth_token
-            },
-        )
-
-    def threads_insights(
-        self,
-        user_id: str,
-    ):
-        """
-        refs: https://developers.facebook.com/docs/threads/insights
-        """
-        endpoint = f'/{user_id}/threads_insights'
-        method = 'GET'
-        url = f'{self.base_url_v1}{endpoint}'
-
-        return self._request(
-            method=method,
-            url=url,
-            params={
-                'metric': 'views,likes,replies,reposts,quotes,followers_count',
                 'access_token': self.auth_token
             },
         )
