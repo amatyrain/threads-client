@@ -39,9 +39,21 @@ class ThreadsClient:
             raise Exception(e)
 
         if response.status_code != 200:
-            pprint.pprint(response.json())
+            try:
+                err_json = response.json()
+            except Exception:
+                err_json = {'error': {'message': response.text}}
+            pprint.pprint(err_json)
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as he:
+            # Include response body for better diagnostics
+            try:
+                body = response.json()
+            except Exception:
+                body = response.text
+            raise Exception(f"HTTPError {response.status_code} for {url}: {body}")
 
         return response.json()
 
@@ -82,7 +94,23 @@ class ThreadsClient:
             }
         """
         thread = self.create_thread(text, image_url)
-        return self.publish_thread(thread['id'])
+        container_id = thread['id']
+
+        # Poll container status until FINISHED or PUBLISHED, with a timeout
+        status = self.get_container_status(container_id)
+        wait_secs = 0
+        max_wait = 60  # seconds
+        interval = 5
+        while status in ['IN_PROGRESS'] and wait_secs < max_wait:
+            import time
+            time.sleep(interval)
+            wait_secs += interval
+            status = self.get_container_status(container_id)
+
+        if status in ['ERROR', 'EXPIRED']:
+            raise Exception(f"Threads container not publishable: status={status}")
+
+        return self.publish_thread(container_id)
 
     def create_thread(
         self,
@@ -134,6 +162,19 @@ class ThreadsClient:
             data=data,
             use_form_data=True,
         )
+
+    def get_container_status(self, container_id: str) -> str:
+        """Check publishing status for a container ID."""
+        endpoint = f'/{container_id}'
+        method = 'GET'
+        url = f'{self.base_url_v1}{endpoint}'
+
+        resp = self._request(
+            method=method,
+            url=url,
+            params={'fields': 'status', 'access_token': self.auth_token},
+        )
+        return resp.get('status', 'UNKNOWN')
 
     def retrieve_thread(
         self,
