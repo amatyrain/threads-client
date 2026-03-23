@@ -1,9 +1,16 @@
 import pprint
+import time
 import requests
 import os
 
 
 class ThreadsClient:
+    # Threads API Rate Limits (per official docs):
+    # - 250 API-published posts within a 24-hour moving period
+    # - API call rate: 4800 * Number of Impressions (min 10) per 24h
+    MAX_RETRIES = 3
+    INITIAL_BACKOFF_SECONDS = 5
+
     def __init__(self, auth_token, auto_refresh=True):
         self.auth_token = auth_token
         self.base_url_v1 = 'https://graph.threads.net/v1.0'
@@ -30,47 +37,67 @@ class ThreadsClient:
         print(f'data: {data}')
         print(f'use_form_data: {use_form_data}')
 
-        try:
-            if use_form_data:
-                # Threads API requires form data for certain endpoints (e.g., threads_publish)
-                form_data = {**(data or {}), 'access_token': self.auth_token}
-                response = requests.request(
-                    method=method,
-                    url=url,
-                    data=form_data,
-                    params=params
-                )
-            else:
-                headers = {
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {self.auth_token}',
-                }
-                response = requests.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    json=data,
-                    params=params
-                )
-        except Exception as e:
-            raise Exception(e)
-
-        if response.status_code != 200:
+        last_exception = None
+        for attempt in range(self.MAX_RETRIES):
             try:
-                err_json = response.json()
-            except Exception:
-                err_json = {'error': {'message': response.text}}
-            pprint.pprint(err_json)
+                if use_form_data:
+                    # Threads API requires form data for certain endpoints (e.g., threads_publish)
+                    form_data = {**(data or {}), 'access_token': self.auth_token}
+                    response = requests.request(
+                        method=method,
+                        url=url,
+                        data=form_data,
+                        params=params
+                    )
+                else:
+                    headers = {
+                        'Content-Type': 'application/json',
+                        'Authorization': f'Bearer {self.auth_token}',
+                    }
+                    response = requests.request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        json=data,
+                        params=params
+                    )
+            except Exception as e:
+                last_exception = e
+                wait_seconds = self.INITIAL_BACKOFF_SECONDS * (2 ** attempt)
+                print(f"⚠️  Threads API connection error: {e}. Retrying in {wait_seconds}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                time.sleep(wait_seconds)
+                continue
 
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as he:
-            # Include response body for better diagnostics
+            # Transient server errors (5xx) — retry with exponential backoff
+            if response.status_code >= 500:
+                wait_seconds = self.INITIAL_BACKOFF_SECONDS * (2 ** attempt)
+                print(f"⚠️  Threads API server error ({response.status_code}). Retrying in {wait_seconds}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                time.sleep(wait_seconds)
+                continue
+
+            if response.status_code != 200:
+                try:
+                    err_json = response.json()
+                except Exception:
+                    err_json = {'error': {'message': response.text}}
+                pprint.pprint(err_json)
+
             try:
-                body = response.json()
-            except Exception:
-                body = response.text
-            raise Exception(f"HTTPError {response.status_code} for {url}: {body}")
+                response.raise_for_status()
+            except requests.HTTPError as he:
+                # Include response body for better diagnostics
+                try:
+                    body = response.json()
+                except Exception:
+                    body = response.text
+                raise Exception(f"HTTPError {response.status_code} for {url}: {body}")
+
+            return response.json()
+
+        # All retries exhausted
+        if last_exception:
+            raise Exception(f"Threads API request failed after {self.MAX_RETRIES} retries: {last_exception}")
+        raise Exception(f"Threads API request failed after {self.MAX_RETRIES} retries: HTTP {response.status_code}")
 
         return response.json()
 
@@ -272,3 +299,61 @@ class ThreadsClient:
                 'access_token': self.auth_token
             },
         )
+
+    def check_publishing_quota(self) -> dict:
+        """Check current Threads API publishing quota usage.
+
+        Per official docs (https://developers.facebook.com/docs/threads/overview#rate-limiting):
+        - Threads profiles are limited to 250 API-published posts within a 24-hour moving period.
+
+        Returns:
+            dict with keys:
+                quota_usage (int): current number of posts in 24h window
+                quota_total (int): max allowed posts (250)
+                quota_remaining (int): posts remaining
+                can_publish (bool): whether a new post can be published
+
+        Example API response:
+            {
+              "data": [{
+                "quota_usage": 4,
+                "config": {"quota_total": 250, "quota_duration": 86400}
+              }]
+            }
+        """
+        endpoint = f'/{self.user_id}/threads_publishing_limit'
+        method = 'GET'
+        url = f'{self.base_url_v1}{endpoint}'
+
+        try:
+            resp = self._request(
+                method=method,
+                url=url,
+                params={
+                    'fields': 'quota_usage,config',
+                    'access_token': self.auth_token
+                },
+            )
+
+            data = resp.get('data', [{}])[0]
+            quota_usage = data.get('quota_usage', 0)
+            config = data.get('config', {})
+            quota_total = config.get('quota_total', 250)
+
+            result = {
+                'quota_usage': quota_usage,
+                'quota_total': quota_total,
+                'quota_remaining': quota_total - quota_usage,
+                'can_publish': quota_usage < quota_total,
+            }
+            print(f"📊 Threads publishing quota: {quota_usage}/{quota_total} used, {result['quota_remaining']} remaining")
+            return result
+        except Exception as e:
+            # クォータチェックが失敗しても投稿自体はブロックしない（フェイルオープン）
+            print(f"⚠️  Failed to check Threads publishing quota: {e}")
+            return {
+                'quota_usage': -1,
+                'quota_total': 250,
+                'quota_remaining': -1,
+                'can_publish': True,  # チェック失敗時は投稿を許可（API側で制限される）
+            }
